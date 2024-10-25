@@ -1,7 +1,5 @@
 import argparse
 import os
-import pandas as pd
-import numpy as np
 import paramiko
 from dotenv import load_dotenv 
 import subprocess
@@ -43,7 +41,7 @@ if __name__ == "__main__":
     parser.add_argument('--model_path', type=str, help='Path to dlc model')
     parser.add_argument('--model_name', type=str, help='what name to save the model as')
     parser.add_argument('--test_data_path', type=str, help='relative path to the test data to be used for benchmarking')
-    parser.add_argument('--input_bit_width', type=int, choices=["int8", "int16", "fp16" ], default="int8", help='input bit width for the model')
+    parser.add_argument('--input_bit_width', type=str, choices=["int8", "int16", "fp16" ], default="int8", help='input bit width for the model')
     args = parser.parse_args()
     load_dotenv()
     hostname = os.getenv("HOSTNAME") # IP
@@ -113,7 +111,7 @@ if __name__ == "__main__":
     
     print("Creating layer stats.")    
     log_file = f"raw_outputs/raw_output_{model_name}/SNPEDiag.log"
-    subprocess.run(["snpe-diagview", "--input_log", log_file, "--csv_format_version", "2", "--output", f"{host_model_dir}/layer_stats.csv"])
+    subprocess.run(["snpe-diagview", "--input_log", log_file, "--csv_format_version", "2", "--output", f"{host_model_dir}/layer_stats.csv"], check=True)
     per_layer_profiles(f"{host_model_dir}/layer_stats.csv", f"{host_model_dir}/layer_stats.csv")
     
     print("Creating info.json.")

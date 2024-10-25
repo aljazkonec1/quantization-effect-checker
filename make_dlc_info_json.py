@@ -98,7 +98,8 @@ def generate_dlc_info_json( model_name,
                             snpe_info_file_name,
                             text_file_path,
                             gt_labels_path,
-                            raw_outputs_dir):
+                            raw_outputs_dir,
+                            per_layer_analysis_name = "layer_stats.csv"):
     
     """Generate info.json file for a model trained with SNPE-DLC
     
@@ -123,6 +124,7 @@ def generate_dlc_info_json( model_name,
     info["raw_outputs_dir"] = raw_outputs_dir
     info["model_name"] = model_name
     info["gt_labels"] = gt_labels_path
+    info["per_layer_analysis"] = f"{base_dir}/{per_layer_analysis_name}"
     
     throughput = -1
     if os.path.exists(os.path.join(base_dir, "throughput.txt")):
@@ -140,6 +142,30 @@ def generate_dlc_info_json( model_name,
         json.dump(info, f)    
 
 if __name__ == "__main__":
+    generate_dlc_info_json(
+                            model_name="yolov6n-per-channel-fused",
+                            base_dir="models_dlc/yolov6n-per-channel-fused",
+                            snpe_info_file_name="dlc-info-graph.txt",
+                            text_file_path="data/test_raw_rgb/inputs_raw.txt",
+                            gt_labels_path="data/test/labels.json",
+                            raw_outputs_dir="raw_outputs/output-fused"
+                            )
+    generate_dlc_info_json(
+                            model_name="yolov6n-per-channel-reordered",
+                            base_dir="models_dlc/yolov6n-per-channel-reordered",
+                            snpe_info_file_name="dlc-info-graph.txt",
+                            text_file_path="data/test_raw/inputs_raw.txt",
+                            gt_labels_path="data/test/labels.json",
+                            raw_outputs_dir="raw_outputs/output-reordered"
+                            )
+    generate_dlc_info_json(
+                            model_name="yolov6n-per-channel-conv-transpose",
+                            base_dir="models_dlc/yolov6n-per-channel-conv-transpose",
+                            snpe_info_file_name="dlc-info-graph.txt",
+                            text_file_path="data/test_raw/inputs_raw.txt",
+                            gt_labels_path="data/test/labels.json",
+                            raw_outputs_dir="raw_outputs/output-conv-transpose"
+                            )
     generate_dlc_info_json(
                             model_name="yolov6n-base-quant",
                             base_dir="models_dlc/yolov6n-base-quant",
