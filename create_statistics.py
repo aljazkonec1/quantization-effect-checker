@@ -69,7 +69,7 @@ def create_results_comparison_table(results_dir= "results"):
 def create_plotly_comparison_graph(df_full: pd.DataFrame, results_df = pd.DataFrame) -> go.Figure:
     df_pivot_cycles = df_full.pivot_table(index='layer_id', columns='model_name', values='time_cycles', fill_value=0)
     df_pivot_cycles = df_pivot_cycles.astype(int)
-    df_pivot_cycles = df_pivot_cycles / 1000
+    df_pivot_cycles = df_pivot_cycles
     df_pivot_percentage = df_full.pivot_table(index='layer_id', columns='model_name', values='Percentage_of_Total_Time', fill_value=0)
     total_cycles = df_full.groupby('model_name')['time_cycles'].sum()
     
