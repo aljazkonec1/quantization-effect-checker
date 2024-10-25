@@ -12,7 +12,6 @@ def run_models_onnx(models_dir="models_onnx",
                     labels_dir="data/test",
                     postprocess_function = process_yolov6_outputs):
     """
-    
     Parameters
     -----------
     models_dir: str
@@ -58,7 +57,8 @@ def run_models_onnx(models_dir="models_onnx",
             height = img_info["height"]
             
             img = cv2.imread(img_path)
-            
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                        
             img = resize_and_pad(img, target_size=(model_w, model_h))
             img = img.transpose(2, 0, 1)
             img = img / 255
@@ -217,7 +217,7 @@ def run_models_dlc(models_dir="models_dlc",
      
 if __name__ == "__main__":
     print("Running onnx models ...")
-    # run_models_onnx()
+    run_models_onnx()
     print("Running dlc models ...")
     run_models_dlc()
 
