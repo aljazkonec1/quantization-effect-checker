@@ -3,13 +3,20 @@ import onnx
 import onnxruntime
 import cv2
 import numpy as np
-from postprocess_functions import process_yolov6_outputs
+from postprocess_functions import process_yolov6_outputs, process_segmentation_outputs
 from utils import resize_and_pad
 import json
 from onnx import TensorProto
+import shutil
+from rich import print
+from rich.console import Console
+from rich.panel import Panel
+from rich.progress import track
+console = Console()
 
 def run_models_onnx(models_dir="models_onnx", 
-                    labels_dir="data/test",
+                    images_dir = "data/test",
+                    save_dir = "raw_outputs",
                     postprocess_function = process_yolov6_outputs):
     """
     Parameters
@@ -20,15 +27,15 @@ def run_models_onnx(models_dir="models_onnx",
         Path to directory containing the labels.json file and coresponding images
     postprocess_function: a postprocessing function that converts model output int compatible COCO-style annotation
     """
-    models = os.listdir(models_dir)
-    labels = json.load(open(f"{labels_dir}/labels.json"))
-    images = labels["images"]
-    classes = [ c["id"] for c in labels["categories"]]
+    console.print(Panel("[bold purple]Running ONNX models... [/bold purple]"))
     
+    models = os.listdir(models_dir)
+
     for model in models:
         if not model.endswith(".onnx"):
             continue
-        print("Running model: ", model)
+        console.print(f"Running model: [bold blue]{model}[/bold blue]")
+        model_name = model.replace(".", "-")
         onnx_model = onnx.load(f"{models_dir}/{model}")
         
         input_tensor = onnx_model.graph.input[0]
@@ -46,57 +53,38 @@ def run_models_onnx(models_dir="models_onnx",
         
         onnx_model = onnxruntime.InferenceSession(f"models_onnx/{model}")
         
-        detection_id = 0 
-        detections = []
-        for img_info in images:
-            img_name = img_info["file_name"]
-            img_path = f"{labels_dir}/data/{img_name}"
-            img_id = img_info["id"]
+        images = os.listdir(images_dir + "/data")
+        os.makedirs(f"processed_outputs/{model_name}", exist_ok=True)
+        
+        for img_name in images:
             
-            width = img_info["width"]
-            height = img_info["height"]
-            
+            img_path = f"{images_dir}/data/{img_name}"
             img = cv2.imread(img_path)
-            img = resize_and_pad(img, target_size=(model_w, model_h))
+            
+            img = cv2.resize(img, (513, 513))
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)            
             img = img.transpose(2, 0, 1)
             img = img / 255
             img = np.expand_dims(img, axis=0)
             
             outputs = onnx_model.run(output_names, {input_name: img.astype(elem_type)})
             
-            boxes = postprocess_function(outputs)
-
-            for box in boxes:
-                x1, y1, x2, y2, conf, cls_score = box[:6].cpu().numpy()  # Assuming 'boxes' is on a GPU tensor
-                x1, y1, x2, y2 = int(x1*width/model_w), int(y1*height/model_h), int(x2*width/model_w), int(y2*height/model_h)
-                class_idx = int(classes[int(cls_score)])
-                
-                w = x2 - x1
-                h = y2 - y1
-            
-                #create json annotation
-                detection = {
-                    "image_id": img_id,
-                    "category_id": class_idx,
-                    "bbox": [x1, y1, w, h],
-                    "score": float(conf),
-                    "id": detection_id,  # Add a unique ID
-                    "area" : w * h
-                }
-                detection_id += 1
-                detections.append(detection)
-        
-        annotations = {"annotations": detections}
+            segmentation, probabilities = postprocess_function(outputs[0])
+            # segmentation = cv2.cvtColor(segmentation, cv2.COLOR_GRAY2BGR)
+            save_name = img_name.replace(".jpg", ".png")
+            cv2.imwrite(f"processed_outputs/{model_name}/{save_name}", segmentation)
         
         info = {}
-        info["model_name"] = model.replace(".", "-")
-        info["gt_labels"] = f"{labels_dir}/labels.json"
+        info["model_name"] = model_name
+        info["gt_labels"] = f"{images_dir}/data"
         info["FPS"] = -1
-        annotations["info"] = info
-        annotations["images"] = images
-        annotations["categories"] = labels["categories"]
-        with open(f"results/{model.replace(".", "-")}.json", "w") as f:
-            json.dump(annotations, f)
+        info["raw_outputs_dir"] = f"{save_dir}/{model_name}"
+        info["categories"] = json.load(open(f"{images_dir}/categories.json"))
+        info["predictions_dir"] = f"processed_outputs/{model_name}"
+
+        json_file = {"info": info}
+        with open(f"results/{model_name}.json", "w") as f:
+            json.dump(json_file, f)
         
 def run_models_dlc(models_dir="models_dlc",
                    postprocess_function = process_yolov6_outputs):
@@ -107,47 +95,39 @@ def run_models_dlc(models_dir="models_dlc",
         Path to directory containing the dlc models.
     postprocess_function: a postprocessing function that converts model output int compatible COCO-style annotation
     """
-    
+    console.print(Panel("[bold purple]Running DLC models... [/bold purple]"))
     
     models_dir = [os.path.join(models_dir, model) for model in os.listdir(models_dir)]
     
-
     for model_dir in models_dir:
         if not os.path.isdir(model_dir):
             continue
         if not os.path.exists(f"{model_dir}/info.json"):
             continue
-        print("Running model: ", model_dir.split("/")[-1])
+        model = model_dir.split("/")[-1]
+        console.print(f"Running model: [bold blue]{model}[/bold blue]")
         info = json.load(open(f"{model_dir}/info.json"))
         
-        gt_labels = json.load(open(info["gt_labels"]))
-        images = gt_labels["images"]
-        classes = [ c["id"] for c in gt_labels["categories"]]
-
         file = []
         with open(info["text_file_path"], "r") as f:
             file = f.readlines()
         
         raw_outputs_dir = info["raw_outputs_dir"]
+        
         raw_outputs = os.listdir(raw_outputs_dir)
         raw_outputs = [os.path.join(raw_outputs_dir,entry) for entry in raw_outputs if os.path.isdir(os.path.join(raw_outputs_dir, entry))]
         raw_outputs = sorted(raw_outputs, key=lambda x: int(x.split("_")[-1]))
     
         dequantize_info = info["dequantize_info"]
         output_names = info["output_names"]
-        model_h = info["model_h"]
-        model_w = info["model_w"]
+        model_name = info["model_name"]
         
-        detection_id = 0
-        detections = []
+        if os.path.exists(f"processed_outputs/{model_name}"):
+            shutil.rmtree(f"processed_outputs/{model_name}")
+        os.makedirs(f"processed_outputs/{model_name}", exist_ok=True)
         
         for i, image_name in enumerate(file):
             image_name = image_name.strip().split("/")[-1].split(".")[0]
-            image_info = [img for img in images if image_name in img["file_name"]][0]
-            width = image_info["width"]
-            height = image_info["height"]
-            img_id = image_info["id"]
-            img_name = image_info["file_name"]
             
             outputs = {}
             for output_name in os.listdir(raw_outputs[i]):
@@ -183,40 +163,20 @@ def run_models_dlc(models_dir="models_dlc",
             outputs_list =[]
             for i in range(len(output_names)):
                 outputs_list.append(outputs[output_names[i]])
-            
-            boxes = postprocess_function(outputs_list)
-            for box in boxes:
-                x1, y1, x2, y2, conf, cls_score = box[:6].cpu().numpy()  # Assuming 'boxes' is on a GPU tensor
-                x1, y1, x2, y2 = int(x1*width/model_w), int(y1*height/model_h), int(x2*width/model_w), int(y2*height/model_h)
-                
-                class_idx = int(classes[int(cls_score)])
-                
-                w = x2 - x1
-                h = y2 - y1
-                
-                #create json annotation
-                detection = {
-                    "image_id": img_id,
-                    "category_id": class_idx,
-                    "bbox": [x1, y1, w, h],
-                    "score": float(conf),
-                    "id": detection_id,  # Add a unique ID
-                    "area" : w * h
-                }
-                detection_id += 1
-                detections.append(detection)
-            
-        annotations = {"annotations": detections}
-        annotations["info"] = info
-        annotations["images"] = images
-        annotations["categories"] = gt_labels["categories"]
-        with open(f"results/{info["model_name"]}.json", "w") as f:
-            json.dump(annotations, f)
-     
+            segmentation, probabilities = postprocess_function(outputs_list[0])
+
+            # save_name = image_name.replace(".jpg", ".png")
+            cv2.imwrite(f"processed_outputs/{model_name}/{image_name}.png", segmentation)
+        model_name = info["model_name"]
+        
+        info["predictions_dir"] = f"processed_outputs/{model_name}"
+        json_file = {"info": info}
+
+        with open(f"results/{model_name}.json", "w") as f:
+            json.dump(json_file, f)
+
 if __name__ == "__main__":
-    print("Running onnx models ...")
-    run_models_onnx()
-    print("Running dlc models ...")
-    run_models_dlc()
+    run_models_onnx(postprocess_function=process_segmentation_outputs)
+    # run_models_dlc(postprocess_function=process_segmentation_outputs)
 
     

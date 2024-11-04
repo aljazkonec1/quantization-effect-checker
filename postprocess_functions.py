@@ -98,3 +98,23 @@ def process_yolov6_outputs(outputs, conf_thresh=0.25):
 
     return boxes
 
+def process_segmentation_outputs(output_mask):
+    """
+    Transforms segmentation model outputs into segmentation masks.
+
+    Parameters
+    ----------
+    output_mask : numpy array
+        A numpy array of shape (1, C, H, W) where C is the number of classes
+
+    Returns:
+    mask: numpy array
+        A segmentation mask
+    """
+    
+    output_mask = output_mask[0]
+    output_mask = output_mask.transpose(1, 2, 0)
+    mask = np.argmax(output_mask, axis=-1)
+    probs = np.max(output_mask, axis=-1)
+    mask = mask.astype(np.uint8)
+    return mask, probs
