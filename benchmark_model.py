@@ -83,6 +83,7 @@ if __name__ == "__main__":
     test_data_name = test_data_path.split("/")[-1]
     stdin, stdout, stderr = client.exec_command(f"cd {device_base_path} && ls")
     output = stdout.read().decode()
+    output = output.split("\n")
     
     if test_data_name not in output:
         console.print(f"[bold yellow]Copying testing data \"{test_data_name}\" to device.[/bold yellow]")

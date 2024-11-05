@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 import warnings
 import fiftyone as fo
 from utils import update_menus
+import plotly.io as pio
 
 warnings.filterwarnings(
     "ignore", 
@@ -170,7 +171,7 @@ def create_plotly_comparison_graph(df_full: pd.DataFrame, results_dir: str = "re
         layer_names = layer_names.reindex(layer_ids)
         
         hover_text = [
-            f"{model.strip()} : {y_value*100} %<br>{layer_name}"
+            f"{model.strip()} : {round(y_value*100, 4)} %<br>{layer_name}"
             for layer_name, y_value in zip(layer_names, y_values)
         ]
         
@@ -248,7 +249,7 @@ def create_plotly_comparison_graph(df_full: pd.DataFrame, results_dir: str = "re
             )
         ]
     )
-
+    
     return fig
 
 def create_per_layer_analysis(results_dir: str = "results", prediction_type: str = "detection") -> go.Figure:
@@ -303,19 +304,13 @@ def create_per_layer_analysis(results_dir: str = "results", prediction_type: str
     else:
         detection_statistics(results_dir)
             
-    
     fig = create_plotly_comparison_graph(df_full, results_dir, prediction_type)
 
     return fig
-
-
     
 if __name__ == "__main__":
-    # df = create_results_comparison_table()
-    # df = pd.read_csv("results/results.csv")
-    fig = create_per_layer_analysis("results", "segmentation")
-    
+    fig = create_per_layer_analysis("results", "segmentation")  
+    pio.write_html(fig, "results/per_layer_analysis.html")
     fig.show()
     
-    # segmentation_statistics("data/test","results" )
     

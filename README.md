@@ -118,6 +118,7 @@ After this, just set model_path to the *shared_with_container/outputs/converter_
 
 Here are some protips to help you debug your problem faster:
 * For easier use first convert multiple models and then create a .sh script file that runs benchmark_models multiple times. 
+* For onnx models makes sure you input the image in the correct format (either BGR or RGB), the get_detections/get_segmentations assumes RGB model input. Switching the input will usually still produce good results, a couple of % lower and caould be hard to spot.
 * Check the order in which your model predicts classes, as different tools store categories with different ids. I just downloaded the original [MS COCO val2017](https://cocodataset.org/#home) dataset which has the expanded classes type annotation while the tested yolov6 model has the "old" style. I added logic to map between the two id systems. 
 * If the model expects input to be FP16, you need to adjust *to_raw.py* to save in FP16 format, but be careful! For example if the model has a normalization layer a the start and is FP16 format you need to save in range 0-255 with fp16 type (ie. the difference between 255 143 97 and 255. 143. 97.)
 * For `snpe-net-run` it is very important to correctly set *userbuffer* flags, the above command will work if data is stored in INT8 format, if not you have to set flags like `--userbufferN 16 --userbufferN_output 16` more options can be found on [qualcomm website](https://docs.qualcomm.com/bundle/publicresource/topics/80-63442-2/tools.html) under `snpe-net-run` tool.
@@ -132,13 +133,18 @@ There are multiple additional flags available for quantization, here I just list
 - `--bias_bitwidth` bitwidth for biases
 - `--act_quantizer` indicates what quantizer to use, can choose between `tf`, `enhanced` and `symmetric`. You can check the docs for more info
 
+## Findings
+This is a list of findings on what works/ doesn't work when quantizing and optimizing models:
+  1.  `--per-channel-quantization` works ONLY on Conv, Deconv and Fully connected layers, while all other layers use the default `--per-layer-quantization`. Per channel works by creating quantization values for each conv kernel seperately, since Convolution is highly optimized with dedicated compute cores, the inference speed decrease is < 1 FPS. In addition, per-channel-quantization improves model accuracy to be on par with the original (unquantized) model so it should always be used.
+  2.  Most models expect an RGB input and modelconverter added a split and a concat layer at the begining of the onnx model, this is highly costly as the concat layer copies each value to a new memory location and uses up a large portion of the inference time (20+ % of the model). This problem is exacerbated for larger input models as the number of input pixels increase exponentionally with height/width. To avoid using split/concat there are multiple options. Depthai can just request an RGB image instead of BGR, or if the models first layer is Conv we simply transpose the kernel weights by the channel.
+  3.  Division in SNPE is implemented very badly, at the minimum, use Multiplication layer instead. If the division is adjacent to a Conv layer, you can multiply the kernel weights by the division values. This can be easily done to the onnx model before converting to dlc.
+  4.  Substitution/Addition layers are also slow as they are element-wise operations. Again you can fuse the layer into the bias of a conv layer, you just have to make sure you multiply the Add/Sub values by the per-channel sum of kernel weights if the add/sub is before the Conv layer. This is also done to the onnx model before converting to dlc.
+  5.  SNPE can also run models saved in FP16 format with no quantization, this model should have no accuracy drop compared to base onnx. But sometimes fp16 model has lower FPS. If the model has Concat, Mul, Sub, Div layers, they are around 2x slower than quantized versions of the layers. This method should be reservered only for models that are very hard to quantize.
+  6.  If a convolutional layer has a not uniform stride (not [1, 1], [2, 2] or [3, 3]) then the perforace will be terrible. The fix is to update the onnx graph by changing the stride to [1, 1] and using *Slice node* to take every other value that the convolutional layer returns. I made a sample script on how this can be done in *remove_stride.py*.
 
 ## Grand idea
 So this is still a very early project (if you can even call it that). But the end goal is to better understand how quantization affects models and have a data-based approach to measuring model performance, inference speed and finding problematic layers in the model.
-* I need to add parse args and a script to run the entire pipeline automatically. 
-* Need to explore why FP16 model has better mAP then the underlying ONNX model
-* I need to beter explore mixed quantization as snpe has that option but I didnt fully explore it yet
-* SNPE offers a per-layer inference speed benchmark and I will add some higher level analysis of these values and try to find correlation/problematic layers between different quantization approaches.
+* I need to better explore mixed quantization as snpe has that option but I didnt fully explore it yet
 * snpe-dlc-info can be used to get per layer quant info, I need to combine this info across models and do some analysis to get corelated and problematic layers based on this
 
 :exclamation:**If you find any bugs, have any suggestions, implement any postprocessing functions, have any questions or are confused please message me**:exclamation:
