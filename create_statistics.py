@@ -11,6 +11,8 @@ import warnings
 import fiftyone as fo
 from utils import update_menus
 import plotly.io as pio
+import cv2
+import numpy as np
 
 warnings.filterwarnings(
     "ignore", 
@@ -134,6 +136,54 @@ def segmentation_statistics(results_dir: str = "results", gt_dir = "data/test") 
     
     return df
 
+def depth_statistics(results_dir: str = "results", gt_dir = "data/test") -> pd.DataFrame:
+    all_results = []
+    gt_dir = "data/test_small"
+    gt_dataset = os.listdir(gt_dir + "/gt")
+    gt_dataset = [os.path.join(gt_dir + "/gt", entry) for entry in gt_dataset if entry.endswith(".png")]
+    
+    all_prediction_results = os.listdir(results_dir)
+    for prediction in all_prediction_results:
+        if not prediction.endswith(".json"):
+            continue
+        
+        info_json = json.load(open(f"{results_dir}/{prediction}"))["info"]
+        predictions_dir = info_json["predictions_dir"]
+        
+        rmses = []
+        for gt_img_loc in gt_dataset:
+            img_name = gt_img_loc.split("/")[-1]
+            
+            pred_img = cv2.imread(f"{predictions_dir}/{img_name}", cv2.IMREAD_UNCHANGED)
+            gt_img = cv2.imread(gt_img_loc, cv2.IMREAD_UNCHANGED)
+            gt_img = cv2.resize(gt_img, (pred_img.shape[1], pred_img.shape[0]))
+            rmse = np.sqrt(((gt_img - pred_img) ** 2).mean())
+            rmses.append(rmse)
+        
+        model_rmse = np.mean(rmses)
+
+        res = {
+            "model_name": info_json["model_name"],
+            "RMSE": model_rmse,
+            "FPS": info_json["FPS"],
+        }
+        all_results.append(res)        
+        rmses = []
+    
+    df = pd.DataFrame(all_results)
+    df["RMSE-FPS score"] = (df["RMSE"] * df["FPS"] / max(df["FPS"])).round(4)
+    new_column_order = [
+        "model_name",
+        "RMSE",
+        "FPS",
+        "RMSE-FPS score"
+        ]
+    df = df[new_column_order]
+    df = df.sort_values(by="RMSE", ascending=False)
+    df = df.round(4)
+    df.to_csv(f"{results_dir}/results.csv", index=False)
+    
+    
 def create_plotly_comparison_graph(df_full: pd.DataFrame, results_dir: str = "results", prediction_type: str = "detection") -> go.Figure:
     df_pivot_cycles = df_full.pivot_table(index='layer_id', columns='model_name', values='time_cycles', fill_value=0)
     df_pivot_cycles = df_pivot_cycles.astype(int)
@@ -181,7 +231,7 @@ def create_plotly_comparison_graph(df_full: pd.DataFrame, results_dir: str = "re
             name=model.strip(),
             hovertext=hover_text,
             hoverinfo="text",
-            visible=True  # Initially visible
+            visible=False
         ))
         
     for model in total_cycles.index:
@@ -207,7 +257,19 @@ def create_plotly_comparison_graph(df_full: pd.DataFrame, results_dir: str = "re
                 name=model,
                 visible=False
             ))
-    
+    elif prediction_type == "depth":
+        for model in results_df['model_name']:
+            fig.add_trace(go.Scatter(
+                x=results_df[results_df['model_name'] == model]['FPS'],
+                y=results_df[results_df['model_name'] == model]['RMSE'],
+                hovertext=str(results_df[results_df['model_name'].str.strip() == model]['RMSE'].values[0]) + ' RMSE' + '<br>' + model + '<br>',
+                hoverinfo="text",
+                mode='markers',
+                marker=dict(size=14),
+                name=model,
+                visible=False
+            ))
+
     else: # detection
         for model in results_df['model_name']:
             fig.add_trace(go.Scatter(
@@ -301,6 +363,8 @@ def create_per_layer_analysis(results_dir: str = "results", prediction_type: str
     
     if "segmentation" in prediction_type:
         segmentation_statistics(results_dir, "data/test")
+    if "depth" in prediction_type:
+        depth_statistics(results_dir, "data/test")
     else:
         detection_statistics(results_dir)
             
@@ -309,8 +373,9 @@ def create_per_layer_analysis(results_dir: str = "results", prediction_type: str
     return fig
     
 if __name__ == "__main__":
-    fig = create_per_layer_analysis("results", "segmentation")  
-    pio.write_html(fig, "results/per_layer_analysis.html")
+    # depth_statistics()
+    fig = create_per_layer_analysis("results", "detection")  
+    # pio.write_html(fig, "results/per_layer_analysis.html")
     fig.show()
     
     
