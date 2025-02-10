@@ -23,11 +23,12 @@ There is some kind of bug with postporcessing function that is loaded from luxon
         ├── info.json
         ├── throughput.txt
         ├── model-one-graph.txt
-├── models_onnx #.onnx files of models, usually just one file
+├── models_onnx #.onnx versions of the dlc models. These are the base comparisons for the same mentioned model
+├── quant_checker # all the files to run benchmarking of a model
     ├── <model-one.onnx>
-├── results # results saved as .json files in COCO style annotations
-            # each file should have "annotations" (the predicions), "images" (same as gt), 
-            # "info" (form models_dlc)
+├── results
+   ├── similarities # csv files, each containing similarity scores for a model
+   ├── speeds # csv files, each conaining num cycles for each layer for a model
 ├── shared_with_container # for model converter
 ├── benchmark_model.py # a CLI tool to quickly get all benchmarks of the model
 ├── per_layer_profiler.py # Creates a csv containing average execution times per layer
@@ -39,27 +40,31 @@ There is some kind of bug with postporcessing function that is loaded from luxon
 ├── to_raw.py # conversion and preprocess of RGB images to raw format for upload to device
 ├── utils.py # utils
 ├── visualize_detections.py # visualizes predictions of all results in results dir
+├── visualize_similarities.py # to create ploty plots for all similaritie csv files in /results/similarities
 ```
 In addition to the repo setup you need ssh access to a RVC4 device. 
 To store your data make a dir in */data* directory, I made a */data/tests/* dir and will refer to it as home dir on the device.
 
 ## How to use
 
-For ease of use I made *benchmark_model.py*, a CLI tool for faster execution of full benchmark process. The arguments you need to specify are model_path, model_name, test_data_path, model input_bit_width:
+For ease of use I made *benchmark_model.py*, a CLI tool for faster execution of full benchmark process. The arguments you need to specify are model_path, model_name, onnx_model_path, test_img_path, *optional test_data_path*:
 ```python
-    #!/bin/bash
+   # !/bin/bash
 
-    model_path="path/to/model.dlc"
-    model_name="yolov6n-base-quant"
-    test_data_path="data/test_raw"
-    input_bit_width="int8 # the input type of the model. choices=["int8", "int16", "fp16" ]
+   model_path="shared_with_container/yolov6n-r2-288x512.dlc"
+   model_name="yolov6n-base-quant"
+   onnx_model_path="shared_with_container/yolov6n-r2-288x512-modified.onnx"
+   test_img_path="data/000000135673.jpg"
 
-    python benchmark_model.py \
-        --model_path $model_path \
-        --model_name $model_name \
-        --test_data_path $test_data_path \
-        --input_bit_width $input_bit_width
+   python quant_checker/benchmark_model.py \
+      --model_path $model_path \
+      --model_name $model_name \
+      --test_img_path $test_img_path \
+      --onnx_model_path $onnx_model_path
 ```
+
+:exclamation: **Important: make sure you select the correct onnx file! Dont select the one you specified to model converter as that one potentially doesnt have any normalization/ layer fusions. Use the onnx file that is in at intermediate_outputs/*model_name*-modified.onnx**
+
 **Before running *benchmark_model.py:***
    1) Edit .env file to have correct credentials for ssh access to RVC4 device
    2) Get dataset and split it into test and quantization datasets. Save test to *data* dir and quantization dataset to *shared_with_container/calibration_data*
@@ -68,61 +73,36 @@ For ease of use I made *benchmark_model.py*, a CLI tool for faster execution of 
    5) Create config yaml file in *shared_with_container/configs* for the model
    6) Use modelconverter to convert to dlc
    
-After this, just set model_path to the *shared_with_container/outputs/converter_output* and the rest will be handeled by *benchmark_model.py*.
+After this you can just select an image and the script will handle the rest. By default, the image is resized to ONNX models input size and saved as a raw file in FP32 bitwidth. SNPE should be smart enought to cast fp32 to int8 while running the img through quantized model
 
 **What running benchmark_model.py does:**
    1) Make a *model_name* dir in *models_dlc* and copy the created model.dlc to  *models_dlc/model_name/model_name.dlc*.
-   2) Copy data in *test_data_path* and *model_name.dlc* to the RVC4 device
-   3) Now that the model and the data are on device it will run predictions and benchmark the inference speed. This is done with the commands:
+   2) Make a *model_name* dir in *models_onnx* and copy the onnx model to it. 
+   3) Create a modified onnx model that outputs on every layer and run inference using it. Store the outputs as raw files in models_onnx/*model_name*/output. Create raw file to send to device
+   4) Copy data in *test_data_path* and *model_name.dlc* to the RVC4 device
+   5) Now that the model and the data are on device it will run predictions and benchmark the inference speed. This is done with the commands:
       1) Inference speed: 
    ```snpe-throughput-net-run --duration 60 --use_dsp --container <<model_name>> --perf_profile balanced > throughput.txt ``` 
-      2) Run inference over test data:
-    ```snpe-net-run --container <<model.dlc>> --userbuffer_tf8 --userbuffer_tf8_output --input_list test_raw/inputs_raw.txt --use_dsp --use_native_input_files --use_native_output_files```
-        Here there are some protips that I write in sectio **Protips**
-   4)  The throughput and model outputs are copied back to host. *throughput.txt* is copied to *models_dlc/model_name/throughput.txt* while the model outputs are copied to *raw_outputs/raw_outputs_model_name*.
-   5)  Next, a model graph is created and saved as a txt file in *models_dlc/model_name/dlc-info-graph.txt*. This is done with:
+      2) Run inference over test image:
+    ```snpe-net-run --container <<model.dlc>> --input_list test_raw/inputs_raw.txt--use_native_input_files --use_native_output_files```
+   6)  The throughput and model outputs are copied back to host. *throughput.txt* is copied to *models_dlc/model_name/throughput.txt* while the model outputs are copied to *raw_outputs/raw_outputs_model_name*.
+   7)  Next, a model graph is created and saved as a txt file in *models_dlc/model_name/dlc-info-graph.txt*. This is done with:
    ```snpe-dlc-info -i models_dlc/model_name/model_name.dlc > models_dlc/model_name/dlc-info-graph.txt``` 
    The graph contains layer names, operations and quantization information per each layer of the model. For testing only quantized model performance we are mostly interested in the last cuple of lines where the output quantization information is stored. 
-   6)  A per layer analysis performed with the command:
+   8)  A per layer analysis performed with the command:
    ```snpe-diagview --input_log results_log_file.log,--csv_format_version 2 --output models_dlc/model_name/layer_stats.csv```
    and then processed with *per_layer_profiler.py*
-   8)  This information is then, in conjunction with the *throughputs.txt* file from step *3.i*, extracted and saved into a *info.json* file with the use of *make_dlc_info_json.py* script.
+   9)  This information is then, in conjunction with the *throughputs.txt* file from step *3.i*, extracted and saved into a *info.json* file with the use of *make_dlc_info_json.py* script.
 
 **After running the script :** 
-   1) If there is no compatible postprocessing function stored in *postprocess_functions.py* you have to make it yourself. The function should return the bbox in either xmin, ymin, xmax, ymax or even better yet in xmin, ymin, w, h format with additional class index and confidence scores.
-   2) Run *get_detections.py* script to run through the raw outputs and create .json annotation results in *results/*
-   4) Now run the *create_statistics.py* script to get a .csv file with results and an interactive plot plot of analysis :rocket:
-   5) Additionally you can run *visualize_detections.py* that just visualizes all json files in *results/* directory.
-
-
-
-   <!-- 10) Now that you have the model and the data on the device you can run predictions and benchmark the inference speed. To do this you run the commands:
-      1) Inference speed: 
-   ```snpe-throughput-net-run --duration 60 --use_dsp --container <<model_name>> --perf_profile balanced > throughput.txt ``` 
-    You can then copy the throughput.txt file and store it in the model dir as described in repo structure
-      2) Run inference over test data:
-    ```snpe-net-run --container <<model.dlc>> --userbuffer_tf8 --userbuffer_tf8_output --input_list test_raw/inputs_raw.txt --use_dsp --use_native_input_files --use_native_output_files```
-        Here there are some protips that I write in sectio **Protips**
-    The *snpe-net-run* will produce an output dir where each tested image will have its own dir which contains seperate .raw files for each output head of the model like *outputname_1.raw*, *outputname_2.raw* ...
-    You can now copy the entire dir, with all image dirs to the *raw_outputs*. This concludes everything we have to do on the device and can continue on your host machine.
-   1)  First we will create a model graph and save it as a txt file in the models dir. This is done with:
-   ```snpe-dlc-info -i models_dlc/model_name/model_name.dlc > models_dlc/model_name/dlc-info-graph.txt``` 
-   The graph contains layer names, operations and quantization information per each layer of the model. For testing only quantized model performance we are mostly interested in the last cuple of line where the output quantization information is stored. 
-   2)  This information is then, in conjunction with the *throughputs.txt* file from step **8.i**, extracted and saved into a *info.json* file with the use of *make_dlc_info_json.py* script. I didn't manage to add argparse to the script so you have to actually call the function in the file, you can also see what parameters need to be set in the functions description.
-   3)  If there is no compatible postprocessing function stored in *postprocess_functions.py* you have to make it yourself. The function should return the bbox in either xmin, ymin, xmax, ymax or even better yet in xmin, ymin, w, h format with additional class index and confidence scores.
-   4)  The postprocess function is used in the *get_detections.py* script which runs through all the models saved in the models_dlc and models_onnx folders. The script then creates result json in *results* folder for each model. Similarly to before, I didnt manage to add argparse so consult function description and set params in the below main run of the file.
-   5)  Now just run the *create_statistics.py* script to get a .csv file with results :rocket: 
-   6)  Additionally you can run *visualize_detections.py* that just visualizes all json files in *results/* directory. -->
+After running this for as may models as you like, the results/similarities and optionally results/speeds (if you used extra command). You can visualize similarities with *visualize_similarities.py*
 
 ## Protips
 
 Here are some protips to help you debug your problem faster:
-* For easier use first convert multiple models and then create a .sh script file that runs benchmark_models multiple times. 
+* For easier use first convert multiple models and then create a *benchmark_models.sh* script file that runs benchmark_models multiple times. 
 * For onnx models makes sure you input the image in the correct format (either BGR or RGB), the get_detections/get_segmentations assumes RGB model input. Switching the input will usually still produce good results, a couple of % lower and caould be hard to spot.
-* Check the order in which your model predicts classes, as different tools store categories with different ids. I just downloaded the original [MS COCO val2017](https://cocodataset.org/#home) dataset which has the expanded classes type annotation while the tested yolov6 model has the "old" style. I added logic to map between the two id systems. 
-* If the model expects input to be FP16, you need to adjust *to_raw.py* to save in FP16 format, but be careful! For example if the model has a normalization layer a the start and is FP16 format you need to save in range 0-255 with fp16 type (ie. the difference between 255 143 97 and 255. 143. 97.)
-* For `snpe-net-run` it is very important to correctly set *userbuffer* flags, the above command will work if data is stored in INT8 format, if not you have to set flags like `--userbufferN 16 --userbufferN_output 16` more options can be found on [qualcomm website](https://docs.qualcomm.com/bundle/publicresource/topics/80-63442-2/tools.html) under `snpe-net-run` tool.
-* A good way if to test if you setup the buffers correctly is, when you run the `snpe-net-run` command it should print out only one image name per QNN operation, if you have it set wrong it will print two or more images per QNN operation.
+* A good way to test if you setup the buffers correctly is, when you run the `snpe-net-run` command it should print out only one image name per QNN operation, if you have it set wrong it will print two or more images per QNN operation.
 * Onnx models accept images in NCHW format while dlc models accept in NHWC format so make sure you convert it correctly. In addition to this, the dlc models outputs are also in a different shape (you can check it in the dlc-model-graph.txt file). For example in yolov6n the onnx model outputs are of shape (1, 85, 18, 32) but dlc model returns in (1, 18, 32, 85) so keep that in mind.
 
 ## Quantization flags

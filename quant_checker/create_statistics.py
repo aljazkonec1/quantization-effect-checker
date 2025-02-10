@@ -9,7 +9,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import warnings
 import fiftyone as fo
-from utils import update_menus
+from quant_checker.util_functions import update_menus
 import plotly.io as pio
 import cv2
 import numpy as np

@@ -2,7 +2,7 @@ import os
 import cv2
 import numpy as np
 import shutil
-from utils import resize_and_pad
+from quant_checker.utils.utils import resize_and_pad
 
 def make_raw_data(images_path: str, 
                   save_path: str,

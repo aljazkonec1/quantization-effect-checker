@@ -4,7 +4,7 @@ import onnxruntime
 import cv2
 import numpy as np
 from postprocess_functions import process_yolov6_outputs, process_segmentation_outputs
-from utils import resize_and_pad
+from quant_checker.utils.utils import resize_and_pad
 import json
 from onnx import TensorProto
 import shutil

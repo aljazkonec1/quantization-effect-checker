@@ -1,12 +1,14 @@
 # !/bin/bash
 
-model_path="shared_with_container/outputs/yolov6n-base-quant/yolov6n-r2-288x512.dlc"
+model_path="shared_with_container/yolov6n-r2-288x512.dlc"
 model_name="yolov6n-base-quant"
-test_data_path="data/test_raw"
-input_bit_width=int8 #implicit
+# onnx_model_path="shared_with_container/yolov6n-r2-288x512-conv-transpose-modified.onnx"
+onnx_model_path="shared_with_container/yolov6n-r2-288x512-modified.onnx"
+# test_img_path="data/000000163682.jpg"
+test_img_path="data/000000135673.jpg"
 
-python benchmark_model.py \
+python quant_checker/benchmark_model.py \
     --model_path $model_path \
     --model_name $model_name \
-    --test_data_path $test_data_path \
-    --input_bit_width $input_bit_width
+    --test_img_path $test_img_path \
+    --onnx_model_path $onnx_model_path
