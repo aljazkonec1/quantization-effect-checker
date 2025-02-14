@@ -90,16 +90,17 @@ def dlc_graph_to_csv(csv_path: str):
     df2 = pd.read_csv(csv_path, skiprows=start_row, nrows=end_row - start_row -1)
 
     # ony name and shape
-    df1 = df1[["Name", "Out Dims"]]
+    df1 = df1[["Outputs", "Out Dims"]]
     df1.columns = ["Name", "Shape"]
+    df1["Name"] = df1["Name"].str.split(' ').str[0]
     df1["Shape"] = df1["Shape"].str.replace("x", ",")
-    df2 = df2[["Output Name", "Dimensions"]]
-    df2.columns = ["Name", "Shape"]
-    df = pd.concat([df1, df2])
+    
+    df = df1
     df["Shape"] = df["Shape"].apply(lambda x: [int(d) for d in x.split(",")])
     df["Name"] = df["Name"].apply(lambda x: x.replace(".", "_").replace("/", "_").strip("_"))
     
-    df.set_index("Name")["Shape"].to_json(csv_path.replace(".csv", ".json"), indent=4)
+    df.set_index("Name", inplace=True)
+    df["Shape"].to_json(csv_path.replace(".csv", ".json"), indent=4)
 
 def flatten_dir(base_dir: str, dlc_outputs: str):
     dest_dir = base_dir + "/output"
