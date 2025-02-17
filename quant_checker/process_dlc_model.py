@@ -18,7 +18,7 @@ def run_dlc_model(sftp, client, dlc_model_path, model_name, test_img_raw_path):
     send_files_to_device(sftp, client, test_img_raw_path)
     
     # execute on device
-    command = f"snpe-net-run --container models/{model_name}.dlc --input_list {model_name}/inputs_raw.txt --debug --userbuffer_floatN_output 32 --perf_profile balanced --userbuffer_float"
+    command = f"snpe-net-run --container models/{model_name}.dlc --input_list {model_name}/inputs_raw.txt --debug --use_dsp --userbuffer_floatN_output 32 --perf_profile balanced --userbuffer_float"
     
     snpe_net_run_command(sftp, client, command, model_dir + "/raw_outputs")
 
